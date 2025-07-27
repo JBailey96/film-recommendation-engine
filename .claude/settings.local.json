@@ -1,0 +1,25 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls:*)",
+      "Bash(mkdir:*)",
+      "Bash(docker-compose build:*)",
+      "Bash(docker-compose:*)",
+      "Bash(docker-compose up:*)",
+      "Bash(python:*)",
+      "Bash(venvScripts:*)",
+      "Bash(\"venv\\Scripts\\activate\")",
+      "Bash(\"./venv/Scripts/python.exe\" test_csv_import.py)",
+      "Bash(\"./venv/Scripts/pip.exe\" list)",
+      "Bash(\"./venv/Scripts/pip.exe\" install -r requirements.txt)",
+      "Bash(\"./venv/Scripts/pip.exe\" install setuptools)",
+      "Bash(\"./venv/Scripts/pip.exe\" install python-dotenv)",
+      "Bash(\"./venv/Scripts/pip.exe\" install aiohttp)",
+      "Bash(.venvScriptsactivate.bat)",
+      "Bash(.venvScriptspython.exe test_csv_import.py)",
+      "Bash(./venv/Scripts/python.exe test_csv_import.py:*)",
+      "Bash(./venv/Scripts/python.exe test_poster_scraping.py:*)"
+    ],
+    "deny": []
+  }
+}

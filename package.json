@@ -1,0 +1,20 @@
+{
+  "name": "imdb-ratings-tool",
+  "version": "1.0.0",
+  "description": "A tool to analyze IMDB ratings and movie preferences",
+  "main": "index.js",
+  "scripts": {
+    "dev": "concurrently \"npm run backend\" \"npm run frontend\"",
+    "backend": "cd backend && python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000",
+    "frontend": "cd frontend && npm start",
+    "install-all": "pip install -r requirements.txt && cd frontend && npm install",
+    "setup-db": "cd backend && python -m alembic upgrade head",
+    "scrape": "cd backend && python -m app.scraper.main"
+  },
+  "keywords": ["imdb", "ratings", "analysis", "movies"],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}
