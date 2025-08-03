@@ -22,7 +22,10 @@
       "mcp__playwright__browser_navigate",
       "mcp__playwright__browser_take_screenshot",
       "mcp__playwright__browser_click",
-      "mcp__playwright__browser_resize"
+      "mcp__playwright__browser_resize",
+      "mcp__imdb-ratings-tool__filter_movies",
+      "mcp__imdb-ratings-tool__search_movies",
+      "mcp__imdb-ratings-tool__get_cast_member_movies"
     ],
     "deny": []
   }

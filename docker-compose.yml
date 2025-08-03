@@ -34,5 +34,22 @@ services:
       - ./.env:/app/.env
     restart: unless-stopped
 
+  mcp-server:
+    build:
+      context: .
+      dockerfile: Dockerfile.mcp
+    environment:
+      DATABASE_URL: postgresql://postgres:password@postgres:5432/imdb_ratings
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app/backend
+      - ./mcp_server.py:/app/mcp_server.py
+      - ./.env:/app/.env
+    stdin_open: true
+    tty: true
+    restart: unless-stopped
+
 volumes:
   postgres_data:

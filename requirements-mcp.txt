@@ -1,0 +1,9 @@
+# MCP Server Requirements for IMDb Ratings Tool
+# Install these in addition to the main application requirements
+
+# MCP (Model Context Protocol) server framework
+mcp>=1.0.0
+
+# Already included in main requirements.txt but listed here for clarity:
+sqlalchemy>=2.0.0
+psycopg2-binary>=2.9.0

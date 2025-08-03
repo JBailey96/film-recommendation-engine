@@ -1,0 +1,24 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    gcc \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements
+COPY requirements.txt requirements-mcp.txt ./
+
+# Install Python dependencies
+RUN pip install --no-cache-dir -r requirements.txt -r requirements-mcp.txt
+
+# Copy application code
+COPY backend/ ./backend/
+COPY mcp_server.py ./
+
+# Set Python path
+ENV PYTHONPATH=/app
+
+# Expose MCP server (runs on stdio, no port needed)
+CMD ["python", "mcp_server.py"]
