@@ -16,6 +16,7 @@ import Dashboard from './pages/Dashboard';
 import ScrapingPage from './pages/ScrapingPage';
 import AnalysisPage from './pages/AnalysisPage';
 import RatingsPage from './pages/RatingsPage';
+import ChatPage from './pages/ChatPage';
 import { ApiService } from './services/api';
 
 interface TabPanelProps {
@@ -120,6 +121,7 @@ function App() {
           <Tab label="Import Data" />
           <Tab label="Analysis" disabled={!hasData} />
           <Tab label="All Ratings" disabled={!hasData} />
+          <Tab label="Chat" disabled={!hasData} />
         </Tabs>
 
         <TabPanel value={tabValue} index={0}>
@@ -136,6 +138,10 @@ function App() {
 
         <TabPanel value={tabValue} index={3}>
           <RatingsPage />
+        </TabPanel>
+
+        <TabPanel value={tabValue} index={4}>
+          <ChatPage />
         </TabPanel>
       </Container>
     </Box>

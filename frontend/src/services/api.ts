@@ -170,6 +170,28 @@ export interface RatingsSearchParams {
   runtime_max?: number;
 }
 
+export interface ChatMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  timestamp: string;
+}
+
+export interface ChatHistory {
+  conversation_id: string;
+  messages: ChatMessage[];
+}
+
+export interface ChatRequest {
+  message: string;
+  conversation_id?: string | null;
+}
+
+export interface ChatResponse {
+  response: string;
+  conversation_id: string;
+}
+
 export class ApiService {
   // Health check
   static async healthCheck(): Promise<{ status: string; message: string }> {
@@ -262,6 +284,22 @@ export class ApiService {
     const response = await api.get('/api/analysis/recommendations', {
       params: { limit }
     });
+    return response.data;
+  }
+
+  // Chat endpoints
+  static async sendChatMessage(request: ChatRequest): Promise<ChatResponse> {
+    const response = await api.post('/api/chat/message', request);
+    return response.data;
+  }
+
+  static async getChatHistory(): Promise<ChatHistory> {
+    const response = await api.get('/api/chat/history');
+    return response.data;
+  }
+
+  static async clearChatHistory(): Promise<{ message: string }> {
+    const response = await api.delete('/api/chat/history');
     return response.data;
   }
 }

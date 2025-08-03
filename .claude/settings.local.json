@@ -25,7 +25,8 @@
       "mcp__playwright__browser_resize",
       "mcp__imdb-ratings-tool__filter_movies",
       "mcp__imdb-ratings-tool__search_movies",
-      "mcp__imdb-ratings-tool__get_cast_member_movies"
+      "mcp__imdb-ratings-tool__get_cast_member_movies",
+      "Bash(curl:*)"
     ],
     "deny": []
   }

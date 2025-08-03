@@ -5,8 +5,8 @@ import os
 from pathlib import Path
 
 from .database.models import Base
-from .database.connection import engine
-from .api import ratings, analysis, scraping
+from .database.connection import engine  
+from .api import ratings, analysis, scraping, chat
 
 app = FastAPI(
     title="IMDB Ratings Analyzer",
@@ -30,6 +30,7 @@ Base.metadata.create_all(bind=engine)
 app.include_router(ratings.router, prefix="/api/ratings", tags=["ratings"])
 app.include_router(analysis.router, prefix="/api/analysis", tags=["analysis"])
 app.include_router(scraping.router, prefix="/api/scraping", tags=["scraping"])
+app.include_router(chat.router, prefix="/api/chat", tags=["chat"])
 
 # Serve static files from frontend build
 frontend_build_path = Path(__file__).parent.parent.parent / "frontend" / "build"
