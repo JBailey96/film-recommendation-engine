@@ -3,7 +3,8 @@ import json
 import httpx
 from typing import List, Dict, Any, Optional
 from sqlalchemy.orm import Session
-from ..database.models import ChatMessage, Movie, UserRating, CastMember
+from ..database.models import ChatMessage, UserRating
+from ..tools import MovieTools
 
 class ClaudeChatService:
     def __init__(self, db: Session):
@@ -208,318 +209,134 @@ Always provide context and explain your findings in a friendly, conversational w
             
             result = response.json()
             
-            # Handle tool use if present
-            if result.get("content"):
+            # Handle tool use if present - support multiple rounds of tool calls
+            max_iterations = 5  # Prevent infinite loops
+            iteration = 0
+            
+            while iteration < max_iterations and result.get("content"):
                 content_blocks = result["content"]
-                final_response = ""
+                text_response = ""
+                tool_calls = []
                 
+                # Process all content blocks
                 for block in content_blocks:
                     if block.get("type") == "text":
-                        final_response += block.get("text", "")
+                        text_response += block.get("text", "")
                     elif block.get("type") == "tool_use":
-                        # Execute the MCP tool
-                        tool_name = block.get("name")
-                        tool_input = block.get("input", {})
-                        tool_id = block.get("id")
-                        
-                        try:
-                            tool_result = await self.execute_mcp_tool(tool_name, tool_input)
-                            
-                            # Send tool result back to Claude
-                            tool_result_message = {
-                                "role": "user",
-                                "content": [
-                                    {
-                                        "type": "tool_result",
-                                        "tool_use_id": tool_id,
-                                        "content": json.dumps(tool_result)
-                                    }
-                                ]
-                            }
-                            
-                            # Make another request with the tool result
-                            messages.append({
-                                "role": "assistant",
-                                "content": content_blocks
-                            })
-                            messages.append(tool_result_message)
-                            
-                            data["messages"] = messages
-                            
-                            follow_up_response = await client.post(
-                                "https://api.anthropic.com/v1/messages",
-                                headers=headers,
-                                json=data
-                            )
-                            
-                            if follow_up_response.status_code == 200:
-                                follow_up_result = follow_up_response.json()
-                                if follow_up_result.get("content"):
-                                    for follow_block in follow_up_result["content"]:
-                                        if follow_block.get("type") == "text":
-                                            final_response += follow_block.get("text", "")
-                        
-                        except Exception as e:
-                            final_response += f"\n\nError executing tool {tool_name}: {str(e)}"
+                        tool_calls.append(block)
                 
+                # If there are no tool calls, we're done
+                if not tool_calls:
+                    return text_response if text_response else "I apologize, but I couldn't generate a response."
+                
+                # Execute all tool calls
+                tool_results = []
+                for tool_call in tool_calls:
+                    tool_name = tool_call.get("name")
+                    tool_input = tool_call.get("input", {})
+                    tool_id = tool_call.get("id")
+                    
+                    try:
+                        tool_result = await self.execute_mcp_tool(tool_name, tool_input)
+                        tool_results.append({
+                            "type": "tool_result",
+                            "tool_use_id": tool_id,
+                            "content": json.dumps(tool_result)
+                        })
+                    except Exception as e:
+                        tool_results.append({
+                            "type": "tool_result",
+                            "tool_use_id": tool_id,
+                            "content": json.dumps({"error": f"Error executing tool {tool_name}: {str(e)}"})
+                        })
+                
+                # Send all tool results back to Claude
+                messages.append({
+                    "role": "assistant",
+                    "content": content_blocks
+                })
+                messages.append({
+                    "role": "user",
+                    "content": tool_results
+                })
+                
+                # Make another request with all tool results
+                data["messages"] = messages
+                
+                follow_up_response = await client.post(
+                    "https://api.anthropic.com/v1/messages",
+                    headers=headers,
+                    json=data
+                )
+                
+                if follow_up_response.status_code == 200:
+                    result = follow_up_response.json()
+                    iteration += 1
+                else:
+                    return f"Error in follow-up request: {follow_up_response.status_code} - {follow_up_response.text}"
+            
+            # After the loop, extract final text response
+            if result.get("content"):
+                final_response = ""
+                for block in result["content"]:
+                    if block.get("type") == "text":
+                        final_response += block.get("text", "")
                 return final_response if final_response else "I apologize, but I couldn't process your request properly."
             
             return "I apologize, but I couldn't generate a response."
 
     async def execute_mcp_tool(self, tool_name: str, tool_input: Dict[str, Any]) -> Any:
-        """Execute an MCP tool by directly calling the database functions."""
+        """Execute an MCP tool using the shared MovieTools functions."""
         try:
-            # Import the database functions we need
-            from ..database.models import Movie, UserRating, CastMember, PosterAnalysis
-            from sqlalchemy import or_, and_, func, desc
+            # Use a fresh database session for tool execution to avoid transaction conflicts
+            from ..database.connection import get_db
+            tool_db = next(get_db())
+            tools = MovieTools(tool_db)
             
             if tool_name == "search_movies":
-                query = tool_input["query"]
-                limit = tool_input.get("limit", 10)
-                
-                # Search in movies, directors, and cast
-                search_filter = or_(
-                    Movie.title.ilike(f"%{query}%"),
-                    Movie.director.ilike(f"%{query}%"),
-                    Movie.imdb_id.in_(
-                        self.db.query(Movie.imdb_id)
-                        .join(CastMember)
-                        .filter(CastMember.name.ilike(f"%{query}%"))
-                    )
+                return tools.search_movies(
+                    query=tool_input["query"],
+                    limit=tool_input.get("limit", 10)
                 )
-                
-                results = self.db.query(Movie, UserRating).join(UserRating).filter(search_filter).limit(limit).all()
-                movies = [self._format_movie_basic(movie, rating) for movie, rating in results]
-                
-                return {"movies": movies, "count": len(movies)}
-
+            
             elif tool_name == "get_movie_details":
-                identifier = tool_input["identifier"]
-                
-                # Try to find by IMDb ID first, then by title
-                if identifier.startswith("tt"):
-                    movie_query = self.db.query(Movie, UserRating).join(UserRating).filter(Movie.imdb_id == identifier)
-                else:
-                    movie_query = self.db.query(Movie, UserRating).join(UserRating).filter(Movie.title.ilike(f"%{identifier}%"))
-                
-                result = movie_query.first()
-                if not result:
-                    return {"error": f"Movie not found: {identifier}"}
-                
-                movie, rating = result
-                
-                # Get cast information
-                cast = self.db.query(CastMember).filter(CastMember.movie_id == movie.id).all()
-                
-                movie_data = self._format_movie_detailed(movie, rating, cast)
-                return movie_data
-
+                return tools.get_movie_details(tool_input["identifier"])
+            
             elif tool_name == "filter_movies":
-                # Build query with filters
-                query = self.db.query(Movie, UserRating).join(UserRating)
-                
-                # Apply filters
-                if "genres" in tool_input and tool_input["genres"]:
-                    genre_conditions = [Movie.genres.contains([genre]) for genre in tool_input["genres"]]
-                    query = query.filter(or_(*genre_conditions))
-                
-                if "year_min" in tool_input:
-                    query = query.filter(Movie.year >= tool_input["year_min"])
-                if "year_max" in tool_input:
-                    query = query.filter(Movie.year <= tool_input["year_max"])
-                
-                if "user_rating_min" in tool_input:
-                    query = query.filter(UserRating.rating >= tool_input["user_rating_min"])
-                if "user_rating_max" in tool_input:
-                    query = query.filter(UserRating.rating <= tool_input["user_rating_max"])
-                
-                if "imdb_rating_min" in tool_input:
-                    query = query.filter(Movie.imdb_rating >= tool_input["imdb_rating_min"])
-                
-                # Apply sorting
-                sort_by = tool_input.get("sort_by", "rating")
-                order = tool_input.get("order", "desc")
-                
-                if sort_by == "rating":
-                    order_column = UserRating.rating
-                elif sort_by == "rated_at":
-                    order_column = UserRating.rated_at
-                elif sort_by == "title":
-                    order_column = Movie.title
-                elif sort_by == "year":
-                    order_column = Movie.year
-                elif sort_by == "imdb_rating":
-                    order_column = Movie.imdb_rating
-                elif sort_by == "runtime_minutes":
-                    order_column = Movie.runtime_minutes
-                
-                if order == "desc":
-                    order_column = order_column.desc()
-                
-                query = query.order_by(order_column)
-                
-                # Apply limit
-                limit = tool_input.get("limit", 20)
-                results = query.limit(limit).all()
-                
-                movies = [self._format_movie_basic(movie, rating) for movie, rating in results]
-                return {"movies": movies, "count": len(movies)}
-
-            elif tool_name == "get_movie_stats":
-                stats = self.db.query(
-                    func.count(UserRating.id).label("total_ratings"),
-                    func.avg(UserRating.rating).label("average_rating"),
-                    func.min(UserRating.rating).label("min_rating"),
-                    func.max(UserRating.rating).label("max_rating"),
-                    func.count(func.distinct(Movie.year)).label("unique_years"),
-                    func.min(Movie.year).label("earliest_year"),
-                    func.max(Movie.year).label("latest_year")
-                ).join(Movie).first()
-                
-                stats_data = {
-                    "total_ratings": int(stats.total_ratings or 0),
-                    "average_rating": float(round(stats.average_rating or 0, 2)),
-                    "min_rating": int(stats.min_rating or 0),
-                    "max_rating": int(stats.max_rating or 0),
-                    "unique_years": int(stats.unique_years or 0),
-                    "earliest_year": int(stats.earliest_year or 0),
-                    "latest_year": int(stats.latest_year or 0)
-                }
-                
-                return stats_data
-
-            elif tool_name == "get_cast_member_movies":
-                name_query = tool_input["name"]
-                role_filter = tool_input.get("role_filter")
-                
-                # Build query for cast member's movies
-                cast_query = self.db.query(Movie, UserRating, CastMember).join(UserRating).join(CastMember).filter(
-                    CastMember.name.ilike(f"%{name_query}%")
+                return tools.filter_movies(
+                    genres=tool_input.get("genres"),
+                    year_min=tool_input.get("year_min"),
+                    year_max=tool_input.get("year_max"),
+                    user_rating_min=tool_input.get("user_rating_min"),
+                    user_rating_max=tool_input.get("user_rating_max"),
+                    imdb_rating_min=tool_input.get("imdb_rating_min"),
+                    runtime_min=tool_input.get("runtime_min"),
+                    runtime_max=tool_input.get("runtime_max"),
+                    sort_by=tool_input.get("sort_by", "rating"),
+                    order=tool_input.get("order", "desc"),
+                    limit=tool_input.get("limit", 20)
                 )
-                
-                if role_filter:
-                    cast_query = cast_query.filter(CastMember.role == role_filter)
-                
-                results = cast_query.all()
-                
-                if not results:
-                    return {"error": f"No movies found for cast member: {name_query}"}
-                
-                # Group by actual cast member name
-                cast_movies = {}
-                for movie, rating, cast_member in results:
-                    actual_name = cast_member.name
-                    if actual_name not in cast_movies:
-                        cast_movies[actual_name] = []
-                    cast_movies[actual_name].append((movie, rating, cast_member))
-                
-                # Format response for each matching cast member
-                cast_members_data = []
-                for cast_name, movies_data in cast_movies.items():
-                    movies = []
-                    roles = set()
-                    
-                    for movie, rating, cast_member in movies_data:
-                        movie_data = self._format_movie_basic(movie, rating)
-                        movie_data["role_in_movie"] = cast_member.role
-                        movie_data["character"] = cast_member.character
-                        movies.append(movie_data)
-                        roles.add(cast_member.role)
-                    
-                    cast_data = {
-                        "name": cast_name,
-                        "roles": list(roles),
-                        "movie_count": len(movies),
-                        "movies": movies
-                    }
-                    cast_members_data.append(cast_data)
-                
-                return {"cast_members": cast_members_data}
-
+            
+            elif tool_name == "get_movie_stats":
+                return tools.get_movie_stats()
+            
+            elif tool_name == "get_cast_member_movies":
+                return tools.get_cast_member_movies(
+                    name=tool_input["name"],
+                    role_filter=tool_input.get("role_filter")
+                )
+            
             elif tool_name == "find_similar_movies":
-                movie_identifier = tool_input["movie_identifier"]
-                similarity_type = tool_input.get("similarity_type", "all")
-                limit = tool_input.get("limit", 10)
-                
-                # Find the reference movie
-                if movie_identifier.startswith("tt"):
-                    ref_movie = self.db.query(Movie).filter(Movie.imdb_id == movie_identifier).first()
-                else:
-                    ref_movie = self.db.query(Movie).filter(Movie.title.ilike(f"%{movie_identifier}%")).first()
-                
-                if not ref_movie:
-                    return {"error": f"Reference movie not found: {movie_identifier}"}
-                
-                similar_movies = []
-                
-                if similarity_type in ["genre", "all"] and ref_movie.genres:
-                    # Find movies with similar genres
-                    genre_conditions = [Movie.genres.contains([genre]) for genre in ref_movie.genres]
-                    genre_similar = self.db.query(Movie, UserRating).join(UserRating).filter(
-                        and_(Movie.id != ref_movie.id, or_(*genre_conditions))
-                    ).limit(limit).all()
-                    similar_movies.extend(genre_similar)
-                
-                # Remove duplicates and format
-                seen_ids = set()
-                unique_similar = []
-                for movie, rating in similar_movies:
-                    if movie.id not in seen_ids:
-                        seen_ids.add(movie.id)
-                        unique_similar.append((movie, rating))
-                        if len(unique_similar) >= limit:
-                            break
-                
-                movies = [self._format_movie_basic(movie, rating) for movie, rating in unique_similar]
-                return {"similar_movies": movies, "reference_movie": ref_movie.title}
-
+                return tools.find_similar_movies(
+                    movie_identifier=tool_input["movie_identifier"],
+                    similarity_type=tool_input.get("similarity_type", "all"),
+                    limit=tool_input.get("limit", 10)
+                )
+            
             else:
                 return {"error": f"Unknown tool: {tool_name}"}
         
         except Exception as e:
             return {"error": f"Error executing tool {tool_name}: {str(e)}"}
-
-    def _format_movie_basic(self, movie: Movie, rating: Optional[UserRating] = None) -> Dict[str, Any]:
-        """Format movie data for basic responses"""
-        return {
-            "imdb_id": movie.imdb_id,
-            "title": movie.title,
-            "year": movie.year,
-            "director": movie.director,
-            "genres": movie.genres or [],
-            "runtime_minutes": movie.runtime_minutes,
-            "imdb_rating": float(movie.imdb_rating) if movie.imdb_rating else None,
-            "user_rating": rating.rating if rating else None,
-            "plot": movie.plot
-        }
-
-    def _format_movie_detailed(self, movie: Movie, rating: Optional[UserRating] = None, 
-                             cast: Optional[List[CastMember]] = None) -> Dict[str, Any]:
-        """Format movie data with all available details"""
-        base_data = self._format_movie_basic(movie, rating)
-        
-        # Add detailed information
-        base_data.update({
-            "original_title": movie.original_title,
-            "title_type": movie.title_type,
-            "release_date": movie.release_date.isoformat() if movie.release_date else None,
-            "imdb_votes": movie.imdb_votes,
-            "box_office": movie.box_office,
-            "country": movie.country,
-            "language": movie.language,
-            "poster_url": movie.poster_url,
-            "rated_at": rating.rated_at.isoformat() if rating and rating.rated_at else None,
-            "review": rating.review if rating else None
-        })
-        
-        # Add cast information
-        if cast:
-            cast_data = {
-                "actors": [{"name": c.name, "character": c.character} for c in cast if c.role == "actor"],
-                "directors": [c.name for c in cast if c.role == "director"],
-                "writers": [c.name for c in cast if c.role == "writer"],
-                "all_cast": [{"name": c.name, "role": c.role, "character": c.character} for c in cast]
-            }
-            base_data["cast"] = cast_data
-        
-        return base_data
+        finally:
+            tool_db.close()

@@ -62,6 +62,7 @@ async def send_chat_message(
         )
         db.add(user_message)
         db.commit()
+        db.refresh(user_message)
 
         # Get chat history for context
         messages = db.query(ChatMessage).filter(
@@ -85,6 +86,7 @@ async def send_chat_message(
         )
         db.add(assistant_message)
         db.commit()
+        db.refresh(assistant_message)
 
         return ChatResponse(
             response=assistant_response,
@@ -92,6 +94,7 @@ async def send_chat_message(
         )
 
     except Exception as e:
+        db.rollback()
         raise HTTPException(status_code=500, detail=f"Chat error: {str(e)}")
 
 @router.get("/history", response_model=ChatHistoryResponse)
