@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, ChangeEvent, useCallback } from 'react';
 import {
   Box,
   Typography,
@@ -33,46 +33,66 @@ function ScrapingPage({ onDataUpdate }: ScrapingPageProps) {
   const [status, setStatus] = useState<ScrapingStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showResetDialog, setShowResetDialog] = useState(false);
-  const intervalRef = useRef<NodeJS.Timeout>();
+  const intervalRef = useRef<NodeJS.Timeout | null>(null);
+  const [isPolling, setIsPolling] = useState(false);
 
-  useEffect(() => {
-    loadStatus();
-    return () => {
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
-      }
-    };
-  }, []);
-
-  useEffect(() => {
-    if (status?.status === 'running' || status?.status === 'pending') {
-      // Poll every 2 seconds while scraping
-      intervalRef.current = setInterval(loadStatus, 2000);
-    } else {
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
-      }
-    }
-
-    return () => {
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
-      }
-    };
-  }, [status?.status]);
-
-  const loadStatus = async () => {
+  const loadStatus = useCallback(async () => {
     try {
       const statusData = await ApiService.getScrapingStatus();
-      setStatus(statusData);
+      setStatus(prevStatus => {
+        // Only update onDataUpdate if status actually changed to completed
+        if (prevStatus && prevStatus.status !== statusData.status && 
+            statusData.status === 'completed') {
+          onDataUpdate();
+        }
+        return statusData;
+      });
       
-      if (statusData.status === 'completed') {
-        onDataUpdate();
+      // Stop polling if scraping is finished or failed
+      if (statusData.status === 'completed' || statusData.status === 'failed' || statusData.status === 'stopped') {
+        setIsPolling(false);
+      }
+      // Start polling if scraping is running or pending
+      else if ((statusData.status === 'running' || statusData.status === 'pending') && !isPolling) {
+        setIsPolling(true);
       }
     } catch (err) {
       console.error('Error loading status:', err);
     }
-  };
+  }, [onDataUpdate, isPolling]);
+
+  useEffect(() => {
+    // Load status once on mount
+    loadStatus();
+    return () => {
+      // Always clear polling interval on unmount
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
+      setIsPolling(false);
+    };
+  }, []);
+
+  useEffect(() => {
+    // Start polling when isPolling is true
+    if (isPolling) {
+      intervalRef.current = setInterval(async () => {
+        await loadStatus();
+      }, 2000);
+    } else {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
+    }
+    return () => {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
+    };
+  }, [isPolling, loadStatus]);
 
   const startScraping = async () => {
     try {
@@ -81,8 +101,8 @@ function ScrapingPage({ onDataUpdate }: ScrapingPageProps) {
         imdb_profile_url: imdbUrl,
         claude_api_key: claudeApiKey || undefined,
       });
-      
-      // Start polling immediately
+      // Start polling
+      setIsPolling(true);
       loadStatus();
     } catch (err: any) {
       setError(err.response?.data?.detail || 'Failed to start scraping');
@@ -92,6 +112,7 @@ function ScrapingPage({ onDataUpdate }: ScrapingPageProps) {
   const stopScraping = async () => {
     try {
       await ApiService.stopScraping();
+      setIsPolling(false);
       loadStatus();
     } catch (err: any) {
       setError(err.response?.data?.detail || 'Failed to stop scraping');
@@ -161,7 +182,7 @@ function ScrapingPage({ onDataUpdate }: ScrapingPageProps) {
             fullWidth
             label="IMDB Profile URL"
             value={imdbUrl}
-            onChange={(e) => setImdbUrl(e.target.value)}
+            onChange={(e: ChangeEvent<HTMLInputElement>) => setImdbUrl(e.target.value)}
             placeholder="https://www.imdb.com/user/ur12345678/ratings/"
             disabled={isActive}
             sx={{ mb: 2 }}
@@ -173,7 +194,7 @@ function ScrapingPage({ onDataUpdate }: ScrapingPageProps) {
             label="Claude API Key (Optional)"
             type="password"
             value={claudeApiKey}
-            onChange={(e) => setClaudeApiKey(e.target.value)}
+            onChange={(e: ChangeEvent<HTMLInputElement>) => setClaudeApiKey(e.target.value)}
             disabled={isActive}
             helperText="For advanced poster and preference analysis"
           />

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   AppBar,
   Toolbar,
@@ -37,23 +37,35 @@ function App() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [hasData, setHasData] = useState(false);
+  const [lastDataCheck, setLastDataCheck] = useState<number>(0);
 
   useEffect(() => {
     checkDataStatus();
   }, []);
 
-  const checkDataStatus = async () => {
+  const checkDataStatus = useCallback(async () => {
     try {
       setIsLoading(true);
       const stats = await ApiService.getRatingStats();
-      setHasData(stats.total_ratings > 0);
+      const hasDataNow = stats.total_ratings > 0;
+      setHasData(hasDataNow);
+      setLastDataCheck(Date.now());
     } catch (err) {
       console.error('Error checking data status:', err);
       setError('Failed to connect to API');
     } finally {
       setIsLoading(false);
     }
-  };
+  }, []);
+
+  // Throttled version to prevent excessive API calls
+  const throttledCheckDataStatus = useCallback(async () => {
+    const now = Date.now();
+    // Only check if it's been more than 5 seconds since last check
+    if (now - lastDataCheck > 5000) {
+      await checkDataStatus();
+    }
+  }, [lastDataCheck, checkDataStatus]);
 
   const handleTabChange = (event: React.SyntheticEvent, newValue: number) => {
     setTabValue(newValue);
@@ -111,11 +123,11 @@ function App() {
         </Tabs>
 
         <TabPanel value={tabValue} index={0}>
-          <Dashboard onDataUpdate={checkDataStatus} />
+          <Dashboard onDataUpdate={throttledCheckDataStatus} />
         </TabPanel>
 
         <TabPanel value={tabValue} index={1}>
-          <ScrapingPage onDataUpdate={checkDataStatus} />
+          <ScrapingPage onDataUpdate={throttledCheckDataStatus} />
         </TabPanel>
 
         <TabPanel value={tabValue} index={2}>

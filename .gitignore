@@ -123,3 +123,4 @@ test_posters.db
 
 .env
 .env.example
+node_modules

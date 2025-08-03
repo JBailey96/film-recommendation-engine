@@ -18,7 +18,11 @@
       "Bash(.venvScriptsactivate.bat)",
       "Bash(.venvScriptspython.exe test_csv_import.py)",
       "Bash(./venv/Scripts/python.exe test_csv_import.py:*)",
-      "Bash(./venv/Scripts/python.exe test_poster_scraping.py:*)"
+      "Bash(./venv/Scripts/python.exe test_poster_scraping.py:*)",
+      "mcp__playwright__browser_navigate",
+      "mcp__playwright__browser_take_screenshot",
+      "mcp__playwright__browser_click",
+      "mcp__playwright__browser_resize"
     ],
     "deny": []
   }

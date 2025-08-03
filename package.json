@@ -11,10 +11,24 @@
     "setup-db": "cd backend && python -m alembic upgrade head",
     "scrape": "cd backend && python -m app.scraper.main"
   },
-  "keywords": ["imdb", "ratings", "analysis", "movies"],
+  "keywords": [
+    "imdb",
+    "ratings",
+    "analysis",
+    "movies"
+  ],
   "author": "",
   "license": "MIT",
   "devDependencies": {
+    "@types/node": "^24.1.0",
+    "@types/react": "^19.1.9",
+    "@types/react-dom": "^19.1.7",
     "concurrently": "^8.2.2"
+  },
+  "dependencies": {
+    "@mui/icons-material": "^7.2.0",
+    "@mui/material": "^7.2.0",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1"
   }
 }
