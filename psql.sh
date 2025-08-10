@@ -11,12 +11,9 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-# Database connection settings
-DB_HOST="localhost"
-DB_PORT="5433"
+# Database connection settings (runs inside Docker)
 DB_NAME="imdb_ratings"
-DB_USER="imdb_app"
-DB_PASSWORD=""  # No password required with trust authentication
+DB_USER="postgres"
 
 # Function to print colored output
 print_info() {
@@ -47,7 +44,7 @@ check_database() {
         # Wait for PostgreSQL to be ready
         print_info "Waiting for PostgreSQL to be ready..."
         for i in {1..30}; do
-            if docker-compose exec postgres pg_isready -U imdb_app >/dev/null 2>&1; then
+            if docker-compose exec postgres pg_isready -U postgres >/dev/null 2>&1; then
                 print_success "PostgreSQL is ready!"
                 break
             fi
@@ -69,7 +66,7 @@ run_sql() {
     
     if [ -f "$query" ]; then
         print_info "Executing SQL file: $query"
-        docker-compose exec -T postgres psql -U "$DB_USER" -d "$DB_NAME" -f "/tmp/$(basename "$query")" < "$query"
+        cat "$query" | docker-compose exec -T postgres psql -U "$DB_USER" -d "$DB_NAME"
     else
         print_info "Executing SQL command"
         echo "$query" | docker-compose exec -T postgres psql -U "$DB_USER" -d "$DB_NAME"
@@ -78,7 +75,7 @@ run_sql() {
 
 # Interactive psql session
 interactive_session() {
-    print_info "Starting interactive PostgreSQL session"
+    print_info "Starting interactive PostgreSQL session inside Docker container"
     print_info "Database: $DB_NAME"
     print_warning "Type \\q to exit, \\? for help"
     echo ""

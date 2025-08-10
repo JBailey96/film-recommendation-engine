@@ -4,7 +4,7 @@ services:
     container_name: imdb-postgres-db
     environment:
       POSTGRES_DB: imdb_ratings
-      POSTGRES_USER: imdb_app
+      POSTGRES_USER: postgres
       POSTGRES_HOST_AUTH_METHOD: trust  # Trust connections within Docker network
       POSTGRES_INITDB_ARGS: "--auth-host=trust --auth-local=trust"
     volumes:
@@ -14,15 +14,13 @@ services:
     ports:
       - "5433:5432"  # Keep external port for CLI access
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U imdb_app -h localhost"]
+      test: ["CMD-SHELL", "pg_isready -U postgres -h localhost"]
       interval: 5s
       timeout: 5s
       retries: 5
     labels:
       - "component=database"
       - "description=PostgreSQL Database Server with Socket Communication"
-      - "external_access=localhost:5433 (CLI only)"
-      - "internal_access=unix:/var/run/postgresql/.s.PGSQL.5432"
     logging:
       driver: "json-file"
       options:
@@ -34,9 +32,9 @@ services:
     container_name: imdb-web-app
     environment:
       # Use socket-based connection for internal communication
-      DATABASE_URL: postgresql://imdb_app@/imdb_ratings?host=/var/run/postgresql
+      DATABASE_URL: postgresql://postgres@/imdb_ratings?host=/var/run/postgresql
       # Fallback TCP connection for external tools
-      DATABASE_URL_TCP: postgresql://imdb_app@postgres:5432/imdb_ratings
+      DATABASE_URL_TCP: postgresql://postgres@postgres:5432/imdb_ratings
       API_HOST: 0.0.0.0
       API_PORT: 8000
     ports:
@@ -52,8 +50,6 @@ services:
     labels:
       - "component=web-application"
       - "description=IMDb Ratings Analysis Web Application"
-      - "external_access=http://localhost:8000"
-      - "database_connection=unix_socket:/var/run/postgresql"
     logging:
       driver: "json-file"
       options:
@@ -64,8 +60,7 @@ services:
         echo '🚀 Starting IMDb Ratings Web Application'
         echo '📍 Web App URL: http://localhost:8000'
         echo '🔗 Database: Unix socket connection (secure)'
-        echo '📍 Socket: /var/run/postgresql/.s.PGSQL.5432'
-        echo '👤 Database User: imdb_app (no password required)'
+        echo '👤 Database User: postgres (trust authentication))'
         echo '📊 Dashboard available at: http://localhost:8000'
         echo '💬 Chat interface at: http://localhost:8000 (Chat tab)'
         echo '📈 Analytics at: http://localhost:8000 (Analysis tab)'
@@ -82,7 +77,7 @@ services:
     container_name: imdb-mcp-server
     environment:
       # Use socket-based connection for internal communication
-      DATABASE_URL: postgresql://imdb_app@/imdb_ratings?host=/var/run/postgresql
+      DATABASE_URL: postgresql://postgres@/imdb_ratings?host=/var/run/postgresql
     depends_on:
       postgres:
         condition: service_healthy
@@ -97,8 +92,6 @@ services:
     labels:
       - "component=mcp-server"
       - "description=Model Context Protocol Server for IMDb Data Access"
-      - "external_access=internal-only"
-      - "database_connection=unix_socket:/var/run/postgresql"
     logging:
       driver: "json-file"
       options:
@@ -109,16 +102,8 @@ services:
         echo '🔌 Starting IMDb Ratings MCP Server'
         echo '📍 MCP Server: Running internally for Claude Code integration'
         echo '🔗 Database: Unix socket connection (secure)'
-        echo '📍 Socket: /var/run/postgresql/.s.PGSQL.5432'
-        echo '👤 Database User: imdb_app (no password required)'
-        echo '🧠 Provides: Movie data, statistics, and analysis functions'
-        echo '🎯 Available Tools:'
-        echo '   - search_movies: Find movies by title/director/cast'
-        echo '   - get_movie_details: Get detailed movie information'
-        echo '   - filter_movies: Filter movies by various criteria'
-        echo '   - get_movie_stats: Get collection statistics'
-        echo '   - find_similar_movies: Find movies similar to a given movie'
-        echo '   - get_cast_member_movies: Get all movies for a cast member'
+        echo '👤 Database User: postgres (trust authentication)'
+        echo '🧠 Provides: Movie search, filtering, and analysis tools'
         echo '==============================================='
         python mcp_server.py
       "

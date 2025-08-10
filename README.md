@@ -35,7 +35,7 @@ A comprehensive IMDb movie ratings analysis platform that transforms your rating
 ### Infrastructure & Integration
 - **Docker Compose Stack**: Complete containerized application with health checks
 - **MCP Server**: Model Context Protocol server for Claude Code integration
-- **Cross-platform CLI Tools**: Database access scripts for Windows and Unix systems
+- **Unix/Linux CLI Tools**: Database access scripts for Linux, macOS, and WSL
 - **Secure Configuration**: Environment-based secrets management
 
 ## 🚀 Quick Start
@@ -167,13 +167,9 @@ API_PORT=8000
 Use the provided CLI tools for direct database access:
 
 ```bash
-# Linux/Mac
+# Linux/Unix (including WSL on Windows)
 ./psql.sh                    # Interactive session with example queries
 ./psql.sh "SELECT COUNT(*) FROM movies;"  # Execute single query
-
-# Windows  
-psql.bat                     # Interactive session with example queries
-psql.bat "SELECT COUNT(*) FROM movies;"   # Execute single query
 ```
 
 ## 🛠 Development
@@ -217,7 +213,7 @@ docker-compose logs mcp-server   # MCP server logs
 
 # Access running containers
 docker-compose exec app bash     # Access web app container
-docker-compose exec postgres psql -U imdb_app -d imdb_ratings  # Database access
+docker-compose exec postgres psql -U postgres -d imdb_ratings  # Database access
 ```
 
 ### Database Schema

@@ -30,7 +30,11 @@
       "Bash(chmod:*)",
       "Bash(.psql.bat \"SELECT COUNT(*) as total_movies FROM movies;\")",
       "Bash(bash:*)",
-      "mcp__imdb-ratings-tool__get_movie_stats"
+      "mcp__imdb-ratings-tool__get_movie_stats",
+      "Bash(rm:*)",
+      "Bash(./psql.sh:*)",
+      "mcp__playwright__browser_type",
+      "mcp__playwright__browser_press_key"
     ],
     "deny": []
   }
