@@ -2,9 +2,11 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import or_, and_, func
 from typing import List, Optional
+import asyncio
 from ..database.connection import get_db
 from ..database.models import Movie, UserRating, CastMember
 from ..schemas.ratings import MovieResponse, RatingResponse, MovieStats, PaginatedRatingsResponse
+from ..services.tmdb_service import TMDbService
 
 router = APIRouter()
 
@@ -195,3 +197,60 @@ async def get_movie_rating(imdb_id: str, db: Session = Depends(get_db)):
         review=rating.review,
         rated_at=rating.rated_at
     )
+
+@router.post("/enrich-posters")
+async def enrich_movie_posters(
+    limit: Optional[int] = Query(50, ge=1, le=200, description="Maximum number of movies to enrich"),
+    db: Session = Depends(get_db)
+):
+    """Enrich movies with poster data from TMDb API"""
+    try:
+        # Find movies without poster URLs
+        movies_without_posters = db.query(Movie).filter(
+            or_(Movie.poster_url.is_(None), Movie.poster_url == "")
+        ).limit(limit).all()
+        
+        if not movies_without_posters:
+            return {"message": "No movies need poster enrichment", "enriched": 0}
+        
+        # Initialize TMDb service
+        tmdb_service = TMDbService()
+        if not tmdb_service.api_key:
+            raise HTTPException(
+                status_code=500,
+                detail="TMDb API key not configured. Please set TMDB_API_KEY environment variable."
+            )
+        
+        # Batch enrich movies
+        imdb_ids = [movie.imdb_id for movie in movies_without_posters]
+        enriched_data = await tmdb_service.batch_enrich_movies(imdb_ids, delay=0.25)
+        
+        # Update movies with enriched data
+        updated_count = 0
+        for movie in movies_without_posters:
+            if movie.imdb_id in enriched_data:
+                data = enriched_data[movie.imdb_id]
+                
+                # Update poster URL
+                if data.get('poster_url'):
+                    movie.poster_url = data['poster_url']
+                
+                # Update plot if missing or short
+                if data.get('plot') and (not movie.plot or len(movie.plot) < 100):
+                    movie.plot = data['plot']
+                
+                updated_count += 1
+        
+        # Commit changes
+        if updated_count > 0:
+            db.commit()
+        
+        return {
+            "message": f"Successfully enriched {updated_count} out of {len(movies_without_posters)} movies",
+            "enriched": updated_count,
+            "total_processed": len(movies_without_posters)
+        }
+    
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error enriching posters: {str(e)}")

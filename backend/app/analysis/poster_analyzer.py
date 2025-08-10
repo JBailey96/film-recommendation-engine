@@ -4,6 +4,7 @@ import numpy as np
 from PIL import Image, ImageStat
 import io
 import colorsys
+import os
 from collections import Counter
 from sqlalchemy.orm import Session
 from typing import List, Dict, Optional, Tuple
@@ -15,7 +16,7 @@ from ..schemas.analysis import PosterStyleAnalysis, ColorData, StyleData
 class PosterAnalyzer:
     def __init__(self, db: Session, claude_api_key: Optional[str] = None):
         self.db = db
-        self.claude_api_key = claude_api_key
+        self.claude_api_key = claude_api_key or os.getenv("CLAUDE_API_KEY")
     
     async def analyze_movie_poster(self, movie_id: int, poster_url: str):
         """Analyze a single movie poster"""

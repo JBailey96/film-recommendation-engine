@@ -1,12 +1,14 @@
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, UploadFile, File, Form
 from sqlalchemy.orm import Session
-from typing import Optional
+from typing import Optional, List
 from ..database.connection import get_db
 from ..database.models import ScrapingStatus
 from ..importer.csv_importer import CSVImporter
 from ..schemas.scraping import ScrapingStatusResponse, ScrapingRequest, CSVImportRequest
 import asyncio
 import os
+import tempfile
+import shutil
 
 router = APIRouter()
 
@@ -162,8 +164,9 @@ async def import_csv_data(
     db.add(import_status)
     db.commit()
     
-    # Start CSV import in background
-    importer = CSVImporter(db, csv_file_path, request.claude_api_key)
+    # Start CSV import in background - Claude API key from environment
+    claude_api_key = os.getenv("CLAUDE_API_KEY")
+    importer = CSVImporter(db, csv_file_path, claude_api_key)
     
     async def run_import_with_posters():
         """Run CSV import and optionally scrape posters"""
@@ -181,7 +184,6 @@ async def import_csv_data(
 @router.post("/scrape-posters")
 async def scrape_missing_posters(
     background_tasks: BackgroundTasks,
-    claude_api_key: Optional[str] = None,
     limit: Optional[int] = None,
     db: Session = Depends(get_db)
 ):
@@ -211,9 +213,89 @@ async def scrape_missing_posters(
     async def run_poster_scraping():
         """Run poster scraping with temporary importer"""
         temp_csv_path = ""  # Not needed for poster scraping
+        claude_api_key = os.getenv("CLAUDE_API_KEY")
         importer = CSVImporter(db, temp_csv_path, claude_api_key)
         await importer.scrape_missing_poster_data(limit)
     
     background_tasks.add_task(run_poster_scraping)
     
     return {"message": "Poster scraping started", "status_id": scraping_status.id}
+
+@router.post("/upload-csv")
+async def upload_csv_file(
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...),
+    incremental: bool = Form(True),
+    db: Session = Depends(get_db)
+):
+    """Upload and import CSV file with IMDb ratings"""
+    
+    # Check if import/scraping is already in progress
+    existing_status = db.query(ScrapingStatus).filter(
+        ScrapingStatus.status.in_(["pending", "running"])
+    ).first()
+    
+    if existing_status:
+        raise HTTPException(
+            status_code=400, 
+            detail="Import/scraping is already in progress. Please wait for it to complete."
+        )
+    
+    # Validate file type
+    if not file.filename or not file.filename.endswith('.csv'):
+        raise HTTPException(
+            status_code=400,
+            detail="File must be a CSV file (.csv extension)"
+        )
+    
+    # Create temporary file to save uploaded content
+    try:
+        with tempfile.NamedTemporaryFile(mode='w+b', suffix='.csv', delete=False) as temp_file:
+            shutil.copyfileobj(file.file, temp_file)
+            temp_file_path = temp_file.name
+        
+        # Create new import status
+        import_status = ScrapingStatus(
+            status="pending",
+            total_ratings=0,
+            scraped_ratings=0
+        )
+        db.add(import_status)
+        db.commit()
+        
+        # Start CSV import in background
+        async def run_csv_import():
+            """Run CSV import from uploaded file"""
+            try:
+                claude_api_key = os.getenv("CLAUDE_API_KEY")
+                importer = CSVImporter(db, temp_file_path, claude_api_key)
+                
+                # For incremental mode, we don't clear existing data
+                # The CSVImporter already handles duplicates by checking IMDB IDs
+                
+                await importer.import_csv_data()
+                
+                # Clean up temp file
+                if os.path.exists(temp_file_path):
+                    os.unlink(temp_file_path)
+                    
+            except Exception as e:
+                # Make sure temp file is cleaned up even on error
+                if os.path.exists(temp_file_path):
+                    os.unlink(temp_file_path)
+                raise e
+        
+        background_tasks.add_task(run_csv_import)
+        
+        return {
+            "message": "CSV file uploaded and import started",
+            "status_id": import_status.id,
+            "filename": file.filename,
+            "incremental": incremental
+        }
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error processing uploaded file: {str(e)}"
+        )

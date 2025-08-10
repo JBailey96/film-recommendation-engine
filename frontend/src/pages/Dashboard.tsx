@@ -7,12 +7,15 @@ import {
   Box,
   CircularProgress,
   Alert,
+  Button,
+  Snackbar,
 } from '@mui/material';
 import {
   Movie as MovieIcon,
   Star as StarIcon,
   DateRange as DateIcon,
   Timer as TimerIcon,
+  Refresh as RefreshIcon,
 } from '@mui/icons-material';
 import { ApiService, MovieStats } from '../services/api';
 
@@ -54,6 +57,9 @@ function Dashboard({ onDataUpdate }: DashboardProps) {
   const [stats, setStats] = useState<MovieStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [enrichingPosters, setEnrichingPosters] = useState(false);
+  const [snackbarOpen, setSnackbarOpen] = useState(false);
+  const [snackbarMessage, setSnackbarMessage] = useState('');
 
   useEffect(() => {
     loadStats();
@@ -70,6 +76,26 @@ function Dashboard({ onDataUpdate }: DashboardProps) {
       setError('Failed to load dashboard statistics');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleEnrichPosters = async () => {
+    try {
+      setEnrichingPosters(true);
+      const result = await ApiService.enrichMoviePosters(50);
+      setSnackbarMessage(result.message);
+      setSnackbarOpen(true);
+      
+      // Refresh data if movies were updated
+      if (result.enriched > 0) {
+        onDataUpdate();
+      }
+    } catch (error: any) {
+      console.error('Error enriching posters:', error);
+      setSnackbarMessage('Failed to enrich movie posters');
+      setSnackbarOpen(true);
+    } finally {
+      setEnrichingPosters(false);
     }
   };
 
@@ -159,6 +185,40 @@ function Dashboard({ onDataUpdate }: DashboardProps) {
           </CardContent>
         </Card>
       </Box>
+
+      {/* Data Management Section */}
+      <Box mt={4}>
+        <Typography variant="h5" gutterBottom>
+          Data Management
+        </Typography>
+        <Card>
+          <CardContent>
+            <Typography variant="body1" paragraph>
+              Enrich your movie collection with high-quality poster images from The Movie Database (TMDb).
+            </Typography>
+            <Button
+              variant="contained"
+              color="primary"
+              startIcon={enrichingPosters ? <CircularProgress size={20} /> : <RefreshIcon />}
+              onClick={handleEnrichPosters}
+              disabled={enrichingPosters}
+            >
+              {enrichingPosters ? 'Enriching Posters...' : 'Enrich Movie Posters'}
+            </Button>
+            <Typography variant="caption" display="block" mt={1} color="text.secondary">
+              This will fetch poster images for up to 50 movies without posters.
+            </Typography>
+          </CardContent>
+        </Card>
+      </Box>
+
+      {/* Snackbar for notifications */}
+      <Snackbar
+        open={snackbarOpen}
+        autoHideDuration={6000}
+        onClose={() => setSnackbarOpen(false)}
+        message={snackbarMessage}
+      />
     </Box>
   );
 }

@@ -1,27 +1,42 @@
-version: '3.8'
-
 services:
   postgres:
     image: postgres:15
+    container_name: imdb-postgres-db
     environment:
       POSTGRES_DB: imdb_ratings
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: password
+      POSTGRES_USER: imdb_app
+      POSTGRES_HOST_AUTH_METHOD: trust  # Trust connections within Docker network
+      POSTGRES_INITDB_ARGS: "--auth-host=trust --auth-local=trust"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - postgres_socket:/var/run/postgresql  # Shared socket directory
       - ./scripts/init.sql:/docker-entrypoint-initdb.d/init.sql
     ports:
-      - "5433:5432"
+      - "5433:5432"  # Keep external port for CLI access
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: ["CMD-SHELL", "pg_isready -U imdb_app -h localhost"]
       interval: 5s
       timeout: 5s
       retries: 5
+    labels:
+      - "component=database"
+      - "description=PostgreSQL Database Server with Socket Communication"
+      - "external_access=localhost:5433 (CLI only)"
+      - "internal_access=unix:/var/run/postgresql/.s.PGSQL.5432"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   app:
     build: .
+    container_name: imdb-web-app
     environment:
-      DATABASE_URL: postgresql://postgres:password@postgres:5432/imdb_ratings
+      # Use socket-based connection for internal communication
+      DATABASE_URL: postgresql://imdb_app@/imdb_ratings?host=/var/run/postgresql
+      # Fallback TCP connection for external tools
+      DATABASE_URL_TCP: postgresql://imdb_app@postgres:5432/imdb_ratings
       API_HOST: 0.0.0.0
       API_PORT: 8000
     ports:
@@ -32,14 +47,42 @@ services:
     volumes:
       - ./backend:/app/backend
       - ./.env:/app/.env
+      - postgres_socket:/var/run/postgresql  # Share socket with postgres
     restart: unless-stopped
+    labels:
+      - "component=web-application"
+      - "description=IMDb Ratings Analysis Web Application"
+      - "external_access=http://localhost:8000"
+      - "database_connection=unix_socket:/var/run/postgresql"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    command: >
+      sh -c "
+        echo '🚀 Starting IMDb Ratings Web Application'
+        echo '📍 Web App URL: http://localhost:8000'
+        echo '🔗 Database: Unix socket connection (secure)'
+        echo '📍 Socket: /var/run/postgresql/.s.PGSQL.5432'
+        echo '👤 Database User: imdb_app (no password required)'
+        echo '📊 Dashboard available at: http://localhost:8000'
+        echo '💬 Chat interface at: http://localhost:8000 (Chat tab)'
+        echo '📈 Analytics at: http://localhost:8000 (Analysis tab)'
+        echo '🎬 Movie browser at: http://localhost:8000 (All Ratings tab)'
+        echo '📁 Import data at: http://localhost:8000 (Import Data tab)'
+        echo '==============================================='
+        ./start.sh
+      "
 
   mcp-server:
     build:
       context: .
       dockerfile: Dockerfile.mcp
+    container_name: imdb-mcp-server
     environment:
-      DATABASE_URL: postgresql://postgres:password@postgres:5432/imdb_ratings
+      # Use socket-based connection for internal communication
+      DATABASE_URL: postgresql://imdb_app@/imdb_ratings?host=/var/run/postgresql
     depends_on:
       postgres:
         condition: service_healthy
@@ -47,9 +90,39 @@ services:
       - ./backend:/app/backend
       - ./mcp_server.py:/app/mcp_server.py
       - ./.env:/app/.env
+      - postgres_socket:/var/run/postgresql  # Share socket with postgres
     stdin_open: true
     tty: true
     restart: unless-stopped
+    labels:
+      - "component=mcp-server"
+      - "description=Model Context Protocol Server for IMDb Data Access"
+      - "external_access=internal-only"
+      - "database_connection=unix_socket:/var/run/postgresql"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    command: >
+      sh -c "
+        echo '🔌 Starting IMDb Ratings MCP Server'
+        echo '📍 MCP Server: Running internally for Claude Code integration'
+        echo '🔗 Database: Unix socket connection (secure)'
+        echo '📍 Socket: /var/run/postgresql/.s.PGSQL.5432'
+        echo '👤 Database User: imdb_app (no password required)'
+        echo '🧠 Provides: Movie data, statistics, and analysis functions'
+        echo '🎯 Available Tools:'
+        echo '   - search_movies: Find movies by title/director/cast'
+        echo '   - get_movie_details: Get detailed movie information'
+        echo '   - filter_movies: Filter movies by various criteria'
+        echo '   - get_movie_stats: Get collection statistics'
+        echo '   - find_similar_movies: Find movies similar to a given movie'
+        echo '   - get_cast_member_movies: Get all movies for a cast member'
+        echo '==============================================='
+        python mcp_server.py
+      "
 
 volumes:
   postgres_data:
+  postgres_socket:  # Shared socket volume for secure DB communication

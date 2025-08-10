@@ -100,6 +100,8 @@ class ChatConversation(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     conversation_id = Column(String, unique=True, index=True, nullable=False)
+    title = Column(String)  # User-defined title for saved conversations
+    is_saved = Column(Boolean, default=False)  # Whether the conversation is saved
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     

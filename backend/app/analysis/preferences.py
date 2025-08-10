@@ -5,6 +5,7 @@ from sqlalchemy import func, and_
 from typing import List, Dict, Any
 from collections import Counter
 import json
+import os
 from datetime import datetime
 
 from ..database.models import Movie, UserRating, CastMember, UserPreferences
@@ -16,7 +17,7 @@ from ..schemas.analysis import (
 class PreferenceAnalyzer:
     def __init__(self, db: Session, claude_api_key: str = None):
         self.db = db
-        self.claude_api_key = claude_api_key
+        self.claude_api_key = claude_api_key or os.getenv("CLAUDE_API_KEY")
     
     async def analyze_genres(self, force_regenerate: bool = False) -> GenreAnalysis:
         """Analyze user's genre preferences"""

@@ -192,6 +192,23 @@ export interface ChatResponse {
   conversation_id: string;
 }
 
+export interface SavedConversation {
+  conversation_id: string;
+  title?: string;
+  created_at: string;
+  updated_at: string;
+  message_count: number;
+}
+
+export interface SavedConversationsResponse {
+  conversations: SavedConversation[];
+}
+
+export interface SaveConversationRequest {
+  conversation_id: string;
+  title: string;
+}
+
 export class ApiService {
   // Health check
   static async healthCheck(): Promise<{ status: string; message: string }> {
@@ -220,10 +237,20 @@ export class ApiService {
     return response.data;
   }
 
+  static async enrichMoviePosters(limit: number = 50): Promise<{
+    message: string;
+    enriched: number;
+    total_processed: number;
+  }> {
+    const response = await api.post('/api/ratings/enrich-posters', null, {
+      params: { limit }
+    });
+    return response.data;
+  }
+
   // Scraping endpoints
   static async startScraping(data: {
     imdb_profile_url: string;
-    claude_api_key?: string;
   }): Promise<{ message: string; status_id: number }> {
     const response = await api.post('/api/scraping/start', data);
     return response.data;
@@ -241,6 +268,24 @@ export class ApiService {
 
   static async resetScrapingData(): Promise<{ message: string }> {
     const response = await api.delete('/api/scraping/reset');
+    return response.data;
+  }
+
+  static async uploadCSVFile(file: File, incremental: boolean = true): Promise<{
+    message: string;
+    status_id: number;
+    filename: string;
+    incremental: boolean;
+  }> {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('incremental', incremental.toString());
+    
+    const response = await api.post('/api/scraping/upload-csv', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
     return response.data;
   }
 
@@ -300,6 +345,31 @@ export class ApiService {
 
   static async clearChatHistory(): Promise<{ message: string }> {
     const response = await api.delete('/api/chat/history');
+    return response.data;
+  }
+
+  static async saveConversation(request: SaveConversationRequest): Promise<{ message: string }> {
+    const response = await api.post('/api/chat/conversations/save', request);
+    return response.data;
+  }
+
+  static async getSavedConversations(): Promise<SavedConversationsResponse> {
+    const response = await api.get('/api/chat/conversations/saved');
+    return response.data;
+  }
+
+  static async getConversationById(conversationId: string): Promise<ChatHistory> {
+    const response = await api.get(`/api/chat/conversations/${conversationId}`);
+    return response.data;
+  }
+
+  static async deleteConversation(conversationId: string): Promise<{ message: string }> {
+    const response = await api.delete(`/api/chat/conversations/${conversationId}`);
+    return response.data;
+  }
+
+  static async createNewConversation(): Promise<{ conversation_id: string }> {
+    const response = await api.post('/api/chat/conversations/new');
     return response.data;
   }
 }

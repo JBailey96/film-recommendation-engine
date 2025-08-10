@@ -4,11 +4,9 @@ from datetime import datetime
 
 class ScrapingRequest(BaseModel):
     imdb_profile_url: str
-    claude_api_key: Optional[str] = None
 
 class CSVImportRequest(BaseModel):
     csv_file_path: Optional[str] = None  # If not provided, will use default path
-    claude_api_key: Optional[str] = None
     scrape_posters: bool = False  # Whether to scrape poster data after import
 
 class ScrapingStatusResponse(BaseModel):

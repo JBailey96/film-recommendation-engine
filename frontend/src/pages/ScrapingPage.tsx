@@ -14,12 +14,20 @@ import {
   DialogActions,
   Chip,
   Divider,
+  Input,
+  IconButton,
+  List,
+  ListItem,
+  ListItemText,
+  ListItemSecondaryAction,
 } from '@mui/material';
 import {
-  PlayArrow as PlayIcon,
+  Upload as UploadIcon,
   Stop as StopIcon,
   Refresh as RefreshIcon,
   DeleteForever as DeleteIcon,
+  CloudUpload as CloudUploadIcon,
+  Delete as RemoveIcon,
 } from '@mui/icons-material';
 import { ApiService, ScrapingStatus } from '../services/api';
 
@@ -28,13 +36,14 @@ interface ScrapingPageProps {
 }
 
 function ScrapingPage({ onDataUpdate }: ScrapingPageProps) {
-  const [imdbUrl, setImdbUrl] = useState('https://www.imdb.com/user/ur34563842/ratings/?ref_=hm_nv_rat');
-  const [claudeApiKey, setClaudeApiKey] = useState('');
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [status, setStatus] = useState<ScrapingStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showResetDialog, setShowResetDialog] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
   const [isPolling, setIsPolling] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const loadStatus = useCallback(async () => {
     try {
@@ -94,18 +103,55 @@ function ScrapingPage({ onDataUpdate }: ScrapingPageProps) {
     };
   }, [isPolling, loadStatus]);
 
-  const startScraping = async () => {
+  const handleFileSelect = (event: ChangeEvent<HTMLInputElement>) => {
+    const files = event.target.files;
+    if (files) {
+      const newFiles = Array.from(files).filter(file => 
+        file.name.toLowerCase().endsWith('.csv')
+      );
+      
+      if (newFiles.length !== files.length) {
+        setError('Only CSV files are supported');
+      } else {
+        setError(null);
+      }
+      
+      setSelectedFiles(newFiles);
+    }
+  };
+
+  const removeFile = (index: number) => {
+    setSelectedFiles(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const startImport = async () => {
+    if (selectedFiles.length === 0) {
+      setError('Please select at least one CSV file to import');
+      return;
+    }
+
     try {
       setError(null);
-      await ApiService.startScraping({
-        imdb_profile_url: imdbUrl,
-        claude_api_key: claudeApiKey || undefined,
-      });
+      setUploadProgress(0);
+      
+      // For now, we'll only handle single file upload
+      // Multiple files can be added later if needed
+      const file = selectedFiles[0];
+      
+      await ApiService.uploadCSVFile(file, true); // Always incremental
+      
       // Start polling
       setIsPolling(true);
       loadStatus();
+      
+      // Clear selected files after successful upload
+      setSelectedFiles([]);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+      
     } catch (err: any) {
-      setError(err.response?.data?.detail || 'Failed to start scraping');
+      setError(err.response?.data?.detail || 'Failed to start import');
     }
   };
 
@@ -175,29 +221,66 @@ function ScrapingPage({ onDataUpdate }: ScrapingPageProps) {
       <Card sx={{ mb: 3 }}>
         <CardContent>
           <Typography variant="h6" gutterBottom>
-            Configuration
+            Upload CSV File
           </Typography>
           
-          <TextField
-            fullWidth
-            label="IMDB Profile URL"
-            value={imdbUrl}
-            onChange={(e: ChangeEvent<HTMLInputElement>) => setImdbUrl(e.target.value)}
-            placeholder="https://www.imdb.com/user/ur12345678/ratings/"
-            disabled={isActive}
-            sx={{ mb: 2 }}
-            helperText="Your public IMDB ratings page URL"
-          />
+          <Box sx={{ mb: 2 }}>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".csv"
+              onChange={handleFileSelect}
+              style={{ display: 'none' }}
+              disabled={isActive}
+            />
+            <Button
+              variant="outlined"
+              startIcon={<CloudUploadIcon />}
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isActive}
+              sx={{ mr: 2 }}
+            >
+              Choose CSV File
+            </Button>
+            <Typography variant="caption" color="text.secondary">
+              Select your IMDb ratings export file (.csv format)
+            </Typography>
+          </Box>
+
+          {selectedFiles.length > 0 && (
+            <Box sx={{ mb: 2 }}>
+              <Typography variant="subtitle2" gutterBottom>
+                Selected Files:
+              </Typography>
+              <List dense>
+                {selectedFiles.map((file, index) => (
+                  <ListItem key={index} sx={{ pl: 0 }}>
+                    <ListItemText 
+                      primary={file.name}
+                      secondary={`${(file.size / 1024).toFixed(1)} KB`}
+                    />
+                    <ListItemSecondaryAction>
+                      <IconButton
+                        edge="end"
+                        onClick={() => removeFile(index)}
+                        disabled={isActive}
+                        size="small"
+                      >
+                        <RemoveIcon />
+                      </IconButton>
+                    </ListItemSecondaryAction>
+                  </ListItem>
+                ))}
+              </List>
+            </Box>
+          )}
           
-          <TextField
-            fullWidth
-            label="Claude API Key (Optional)"
-            type="password"
-            value={claudeApiKey}
-            onChange={(e: ChangeEvent<HTMLInputElement>) => setClaudeApiKey(e.target.value)}
-            disabled={isActive}
-            helperText="For advanced poster and preference analysis"
-          />
+          <Alert severity="info">
+            <Typography variant="body2">
+              <strong>Incremental Import:</strong> New ratings will be added without removing existing data. 
+              Duplicate movies (same IMDb ID) will be skipped to avoid conflicts.
+            </Typography>
+          </Alert>
         </CardContent>
       </Card>
 
@@ -206,7 +289,7 @@ function ScrapingPage({ onDataUpdate }: ScrapingPageProps) {
           <CardContent>
             <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
               <Typography variant="h6">
-                Scraping Status
+                Import Status
               </Typography>
               <Chip 
                 label={getStatusText(status.status)}
@@ -265,12 +348,12 @@ function ScrapingPage({ onDataUpdate }: ScrapingPageProps) {
       <Box display="flex" gap={2} flexWrap="wrap">
         <Button
           variant="contained"
-          startIcon={<PlayIcon />}
-          onClick={startScraping}
-          disabled={isActive || !imdbUrl.trim()}
+          startIcon={<UploadIcon />}
+          onClick={startImport}
+          disabled={isActive || selectedFiles.length === 0}
           size="large"
         >
-          Start Scraping
+          Import CSV
         </Button>
 
         <Button
@@ -307,22 +390,22 @@ function ScrapingPage({ onDataUpdate }: ScrapingPageProps) {
 
       <Box>
         <Typography variant="h6" gutterBottom>
-          How it works
+          How to Import Your IMDb Ratings
         </Typography>
         <Typography variant="body2" color="text.secondary" paragraph>
-          1. <strong>Data Collection:</strong> We'll scrape your public IMDB ratings page to collect your movie ratings and basic movie information.
+          1. <strong>Export from IMDb:</strong> Go to your IMDb ratings page and export your ratings as a CSV file.
         </Typography>
         <Typography variant="body2" color="text.secondary" paragraph>
-          2. <strong>Movie Details:</strong> For each rated movie, we'll fetch detailed information including cast, crew, genres, runtime, and poster images.
+          2. <strong>Upload CSV:</strong> Select and upload your downloaded CSV file using the button above.
         </Typography>
         <Typography variant="body2" color="text.secondary" paragraph>
-          3. <strong>Analysis:</strong> We'll analyze your preferences across genres, years, runtime, cast members, and visual styles.
+          3. <strong>Incremental Import:</strong> New movies will be added to your collection without affecting existing data.
         </Typography>
         <Typography variant="body2" color="text.secondary" paragraph>
-          4. <strong>AI Insights:</strong> If you provide a Claude API key, we'll generate deep insights about your movie preferences and personality.
+          4. <strong>Data Enrichment:</strong> Use the Dashboard to enrich your movies with poster images from TMDb.
         </Typography>
         <Typography variant="body2" color="text.secondary">
-          <strong>Note:</strong> This process respects IMDB's rate limits and may take several minutes depending on your number of ratings.
+          <strong>Note:</strong> The CSV should contain columns like Const (IMDb ID), Title, Your Rating, Year, Directors, Genres, etc.
         </Typography>
       </Box>
 

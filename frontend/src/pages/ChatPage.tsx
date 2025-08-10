@@ -11,9 +11,29 @@ import {
   Chip,
   CircularProgress,
   Alert,
+  Select,
+  MenuItem,
+  FormControl,
+  InputLabel,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  IconButton,
+  Menu,
+  ListItemIcon,
+  ListItemText,
 } from '@mui/material';
-import { Send as SendIcon, Person as PersonIcon, SmartToy as BotIcon } from '@mui/icons-material';
-import { ApiService } from '../services/api';
+import { 
+  Send as SendIcon, 
+  Person as PersonIcon, 
+  SmartToy as BotIcon,
+  Save as SaveIcon,
+  Add as AddIcon,
+  MoreVert as MoreVertIcon,
+  Delete as DeleteIcon
+} from '@mui/icons-material';
+import { ApiService, SavedConversation } from '../services/api';
 
 interface ChatMessage {
   id: string;
@@ -34,6 +54,11 @@ const ChatPage: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [savedConversations, setSavedConversations] = useState<SavedConversation[]>([]);
+  const [selectedConversationId, setSelectedConversationId] = useState<string>('current');
+  const [saveDialogOpen, setSaveDialogOpen] = useState(false);
+  const [saveTitle, setSaveTitle] = useState('');
+  const [menuAnchor, setMenuAnchor] = useState<null | HTMLElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = () => {
@@ -47,6 +72,7 @@ const ChatPage: React.FC = () => {
   useEffect(() => {
     // Load conversation history when component mounts
     loadConversationHistory();
+    loadSavedConversations();
   }, []);
 
   const loadConversationHistory = async () => {
@@ -82,6 +108,91 @@ What would you like to know about your movie ratings?`,
         timestamp: new Date(),
       };
       setMessages([welcomeMessage]);
+    }
+  };
+
+  const loadSavedConversations = async () => {
+    try {
+      const response = await ApiService.getSavedConversations();
+      setSavedConversations(response.conversations);
+    } catch (error) {
+      console.error('Error loading saved conversations:', error);
+    }
+  };
+
+  const handleConversationChange = async (conversationId: string) => {
+    if (conversationId === 'current') {
+      // Load current conversation
+      loadConversationHistory();
+      setSelectedConversationId('current');
+    } else if (conversationId === 'new') {
+      // Create new conversation
+      try {
+        const response = await ApiService.createNewConversation();
+        setConversationId(response.conversation_id);
+        setMessages([]);
+        setSelectedConversationId('current');
+        // Add welcome message for new conversation
+        const welcomeMessage: ChatMessage = {
+          id: 'welcome',
+          role: 'assistant',
+          content: `Hello! I'm your IMDb ratings assistant. I can help you analyze your movie preferences, find specific ratings, get recommendations, and answer questions about your viewing habits. 
+
+What would you like to know about your movie ratings?`,
+          timestamp: new Date(),
+        };
+        setMessages([welcomeMessage]);
+      } catch (error) {
+        console.error('Error creating new conversation:', error);
+        setError('Failed to create new conversation');
+      }
+    } else {
+      // Load saved conversation
+      try {
+        const history = await ApiService.getConversationById(conversationId);
+        setMessages(history.messages.map((msg: any) => ({
+          ...msg,
+          timestamp: new Date(msg.timestamp)
+        })));
+        setConversationId(history.conversation_id);
+        setSelectedConversationId(conversationId);
+      } catch (error) {
+        console.error('Error loading saved conversation:', error);
+        setError('Failed to load conversation');
+      }
+    }
+  };
+
+  const handleSaveConversation = async () => {
+    if (!conversationId || !saveTitle.trim()) return;
+    
+    try {
+      await ApiService.saveConversation({
+        conversation_id: conversationId,
+        title: saveTitle.trim()
+      });
+      setSaveDialogOpen(false);
+      setSaveTitle('');
+      loadSavedConversations(); // Refresh saved conversations list
+      setError(null);
+    } catch (error) {
+      console.error('Error saving conversation:', error);
+      setError('Failed to save conversation');
+    }
+  };
+
+  const handleDeleteConversation = async (conversationId: string) => {
+    try {
+      await ApiService.deleteConversation(conversationId);
+      loadSavedConversations(); // Refresh saved conversations list
+      // If we deleted the current conversation, start a new one
+      if (selectedConversationId === conversationId) {
+        handleConversationChange('new');
+      }
+      setMenuAnchor(null);
+    } catch (error) {
+      console.error('Error deleting conversation:', error);
+      setError('Failed to delete conversation');
     }
   };
 
@@ -147,6 +258,58 @@ What would you like to know about your movie ratings?`,
 
   return (
     <Box sx={{ height: '80vh', display: 'flex', flexDirection: 'column' }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 3 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+          <FormControl sx={{ minWidth: 200 }}>
+            <InputLabel>Conversation</InputLabel>
+            <Select
+              value={selectedConversationId}
+              label="Conversation"
+              onChange={(e) => handleConversationChange(e.target.value)}
+            >
+              <MenuItem value="current">Current Chat</MenuItem>
+              <MenuItem value="new">
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <AddIcon fontSize="small" />
+                  New Chat
+                </Box>
+              </MenuItem>
+              {savedConversations.map((conv) => (
+                <MenuItem key={conv.conversation_id} value={conv.conversation_id}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+                    <Box>
+                      {conv.title || `Chat ${conv.conversation_id.slice(-8)}`}
+                      <Typography variant="caption" sx={{ display: 'block', opacity: 0.7 }}>
+                        {conv.message_count} messages
+                      </Typography>
+                    </Box>
+                  </Box>
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+          <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+            Limit: 10 saved chats
+          </Typography>
+        </Box>
+        
+        <Box sx={{ display: 'flex', gap: 1 }}>
+          <IconButton
+            onClick={() => setSaveDialogOpen(true)}
+            disabled={!conversationId || messages.length === 0}
+            title="Save conversation"
+          >
+            <SaveIcon />
+          </IconButton>
+          <IconButton
+            onClick={(e) => setMenuAnchor(e.currentTarget)}
+            title="More options"
+          >
+            <MoreVertIcon />
+          </IconButton>
+        </Box>
+      </Box>
+
       <Typography variant="h4" sx={{ mb: 3, textAlign: 'center' }}>
         Chat with Your Movie Assistant
       </Typography>
@@ -225,7 +388,11 @@ What would you like to know about your movie ratings?`,
                             mt: 1, 
                             height: 20, 
                             fontSize: '0.7rem',
-                            opacity: 0.7 
+                            opacity: 0.7,
+                            color: 'black',
+                            '& .MuiChip-label': {
+                              color: 'black'
+                            }
                           }}
                         />
                       </>
@@ -299,6 +466,49 @@ What would you like to know about your movie ratings?`,
           </Box>
         </Box>
       </Paper>
+
+      {/* Save Conversation Dialog */}
+      <Dialog open={saveDialogOpen} onClose={() => setSaveDialogOpen(false)}>
+        <DialogTitle>Save Conversation</DialogTitle>
+        <DialogContent>
+          <TextField
+            autoFocus
+            margin="dense"
+            label="Conversation Title"
+            fullWidth
+            variant="outlined"
+            value={saveTitle}
+            onChange={(e) => setSaveTitle(e.target.value)}
+            placeholder="Enter a title for this conversation..."
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setSaveDialogOpen(false)}>Cancel</Button>
+          <Button 
+            onClick={handleSaveConversation}
+            disabled={!saveTitle.trim()}
+            variant="contained"
+          >
+            Save
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Menu for additional options */}
+      <Menu
+        anchorEl={menuAnchor}
+        open={Boolean(menuAnchor)}
+        onClose={() => setMenuAnchor(null)}
+      >
+        {selectedConversationId !== 'current' && selectedConversationId !== 'new' && (
+          <MenuItem onClick={() => handleDeleteConversation(selectedConversationId)}>
+            <ListItemIcon>
+              <DeleteIcon fontSize="small" />
+            </ListItemIcon>
+            <ListItemText>Delete Conversation</ListItemText>
+          </MenuItem>
+        )}
+      </Menu>
     </Box>
   );
 };

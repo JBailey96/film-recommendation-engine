@@ -26,7 +26,11 @@
       "mcp__imdb-ratings-tool__filter_movies",
       "mcp__imdb-ratings-tool__search_movies",
       "mcp__imdb-ratings-tool__get_cast_member_movies",
-      "Bash(curl:*)"
+      "Bash(curl:*)",
+      "Bash(chmod:*)",
+      "Bash(.psql.bat \"SELECT COUNT(*) as total_movies FROM movies;\")",
+      "Bash(bash:*)",
+      "mcp__imdb-ratings-tool__get_movie_stats"
     ],
     "deny": []
   }

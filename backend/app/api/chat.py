@@ -32,6 +32,20 @@ class ChatResponse(BaseModel):
     response: str
     conversation_id: str
 
+class SavedConversation(BaseModel):
+    conversation_id: str
+    title: Optional[str]
+    created_at: datetime
+    updated_at: datetime
+    message_count: int
+
+class SavedConversationsResponse(BaseModel):
+    conversations: List[SavedConversation]
+
+class SaveConversationRequest(BaseModel):
+    conversation_id: str
+    title: str
+
 @router.post("/message", response_model=ChatResponse)
 async def send_chat_message(
     request: ChatMessageRequest,
@@ -148,3 +162,131 @@ async def clear_chat_history(db: Session = Depends(get_db)):
     
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error clearing chat history: {str(e)}")
+
+@router.post("/conversations/save")
+async def save_conversation(
+    request: SaveConversationRequest,
+    db: Session = Depends(get_db)
+):
+    """Save a conversation with a title."""
+    try:
+        conversation = db.query(ChatConversation).filter(
+            ChatConversation.conversation_id == request.conversation_id
+        ).first()
+        
+        if not conversation:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+        
+        conversation.title = request.title
+        conversation.is_saved = True
+        db.commit()
+        
+        return {"message": "Conversation saved successfully"}
+    
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error saving conversation: {str(e)}")
+
+@router.get("/conversations/saved", response_model=SavedConversationsResponse)
+async def get_saved_conversations(db: Session = Depends(get_db)):
+    """Get all saved conversations."""
+    try:
+        # Get saved conversations ordered by most recent first, limit to 10
+        conversations = db.query(ChatConversation).filter(
+            ChatConversation.is_saved == True
+        ).order_by(desc(ChatConversation.updated_at)).limit(10).all()
+        
+        saved_conversations = []
+        for conv in conversations:
+            message_count = db.query(ChatMessage).filter(
+                ChatMessage.conversation_id == conv.conversation_id
+            ).count()
+            
+            saved_conversations.append(SavedConversation(
+                conversation_id=conv.conversation_id,
+                title=conv.title,
+                created_at=conv.created_at,
+                updated_at=conv.updated_at,
+                message_count=message_count
+            ))
+        
+        return SavedConversationsResponse(conversations=saved_conversations)
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error retrieving saved conversations: {str(e)}")
+
+@router.get("/conversations/{conversation_id}", response_model=ChatHistoryResponse)
+async def get_conversation_by_id(
+    conversation_id: str,
+    db: Session = Depends(get_db)
+):
+    """Get a specific conversation by ID."""
+    try:
+        conversation = db.query(ChatConversation).filter(
+            ChatConversation.conversation_id == conversation_id
+        ).first()
+        
+        if not conversation:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+        
+        # Get messages for this conversation
+        messages = db.query(ChatMessage).filter(
+            ChatMessage.conversation_id == conversation_id
+        ).order_by(ChatMessage.timestamp).all()
+        
+        message_responses = [
+            ChatMessageResponse(
+                id=str(msg.id),
+                role=msg.role,
+                content=msg.content,
+                timestamp=msg.timestamp
+            )
+            for msg in messages
+        ]
+        
+        return ChatHistoryResponse(
+            conversation_id=conversation_id,
+            messages=message_responses
+        )
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error retrieving conversation: {str(e)}")
+
+@router.delete("/conversations/{conversation_id}")
+async def delete_conversation(
+    conversation_id: str,
+    db: Session = Depends(get_db)
+):
+    """Delete a specific conversation."""
+    try:
+        conversation = db.query(ChatConversation).filter(
+            ChatConversation.conversation_id == conversation_id
+        ).first()
+        
+        if not conversation:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+        
+        db.delete(conversation)
+        db.commit()
+        
+        return {"message": "Conversation deleted successfully"}
+    
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error deleting conversation: {str(e)}")
+
+@router.post("/conversations/new")
+async def create_new_conversation(db: Session = Depends(get_db)):
+    """Create a new conversation and return its ID."""
+    try:
+        conversation_id = str(uuid.uuid4())
+        conversation = ChatConversation(conversation_id=conversation_id)
+        db.add(conversation)
+        db.commit()
+        db.refresh(conversation)
+        
+        return {"conversation_id": conversation_id}
+    
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error creating new conversation: {str(e)}")
